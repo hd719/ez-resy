@@ -1,13 +1,13 @@
 import axios from 'axios';
 import { formatDateForEnv } from './helpers.js';
-import { buildVenueCalendarRequest } from './resyRequests.js';
+import { buildVenueConfigRequest } from './resyRequests.js';
 import {
   getBooleanEnv,
   getOptionalEnv,
   getPositiveIntegerEnv,
   getRequiredEnv,
 } from './runtime.js';
-import type { VenueCalendarResponse } from './types.js';
+import type { VenueConfigResponse } from './types.js';
 
 const DEFAULT_DISCOVERY_INTERVAL_SECONDS = 15;
 const DEFAULT_DISCOVERY_TIMEZONE = 'America/New_York';
@@ -21,6 +21,7 @@ export interface DiscoveryConfig {
   partySize: string;
   intervalSeconds: number;
   timezone: string;
+  triggerBooking: boolean;
 }
 
 export function getDiscoveryConfig(): DiscoveryConfig {
@@ -39,6 +40,7 @@ export function getDiscoveryConfig(): DiscoveryConfig {
   );
   const timezone = getOptionalEnv('DISCOVERY_TIMEZONE') ?? DEFAULT_DISCOVERY_TIMEZONE;
   const venueId = getOptionalEnv('DISCOVERY_VENUE_ID');
+  const triggerBooking = getBooleanEnv('DISCOVERY_TRIGGER_BOOKING', false);
 
   if (enabled && !venueId) {
     throw new Error('DISCOVERY_VENUE_ID is required when DISCOVERY_MODE=true.');
@@ -52,11 +54,16 @@ export function getDiscoveryConfig(): DiscoveryConfig {
     partySize,
     intervalSeconds,
     timezone,
+    triggerBooking,
   };
 }
 
 export function describeDiscoveryConfig(config: DiscoveryConfig): string {
-  return `Discovery mode enabled for venue ${config.venueId}. Polling the calendar every ${config.intervalSeconds} seconds from ${config.startDate} through ${config.endDate} for party size ${config.partySize} (${config.timezone}).`;
+  const handoffDescription = config.triggerBooking
+    ? ' Booking will begin immediately after the calendar advances.'
+    : '';
+
+  return `Discovery mode enabled for venue ${config.venueId}. Polling the calendar every ${config.intervalSeconds} seconds from ${config.startDate} through ${config.endDate} for party size ${config.partySize} (${config.timezone}).${handoffDescription}`;
 }
 
 export async function runCalendarDiscovery(
@@ -92,18 +99,15 @@ export async function runCalendarDiscovery(
 
 async function fetchLastCalendarDay(config: DiscoveryConfig): Promise<string> {
   const venueId = config.venueId ?? getRequiredEnv('DISCOVERY_VENUE_ID');
-  const response = await axios.request<VenueCalendarResponse>(
-    buildVenueCalendarRequest(
-      venueId,
-      config.startDate,
-      config.endDate,
-      config.partySize,
-    ),
+  const response = await axios.request<VenueConfigResponse>(
+    buildVenueConfigRequest(venueId),
   );
-  const lastCalendarDay = response.data.last_calendar_day;
+  const lastCalendarDay = response.data.calendar_date_to;
 
   if (!lastCalendarDay) {
-    throw new Error(`Calendar response for venue ${venueId} did not include last_calendar_day.`);
+    throw new Error(
+      `Venue config response for venue ${venueId} did not include calendar_date_to.`,
+    );
   }
 
   return lastCalendarDay;

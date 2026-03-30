@@ -1,5 +1,5 @@
 import type { AxiosRequestConfig, Method } from 'axios';
-import { getRequiredEnv } from './runtime.js';
+import { getOptionalEnv, getRequiredEnv } from './runtime.js';
 
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36';
@@ -11,6 +11,7 @@ function createHeaders(
   extraHeaders: ResyHeaders = {},
 ): ResyHeaders {
   const resyApiKey = getRequiredEnv('RESY_API_KEY');
+  const authToken = getOptionalEnv('AUTH_TOKEN');
 
   return {
     authority: 'api.resy.com',
@@ -28,6 +29,12 @@ function createHeaders(
     'sec-fetch-site': 'same-site',
     'user-agent': USER_AGENT,
     'x-origin': origin,
+    ...(authToken
+      ? {
+          'x-resy-auth-token': authToken,
+          'x-resy-universal-auth': authToken,
+        }
+      : {}),
     ...extraHeaders,
   };
 }
@@ -36,12 +43,14 @@ function createConfig(
   method: Method,
   url: string,
   headers: ResyHeaders,
+  data?: unknown,
 ): AxiosRequestConfig {
   return {
     method,
     maxBodyLength: Infinity,
     url,
     headers,
+    ...(data === undefined ? {} : { data }),
   };
 }
 
@@ -62,9 +71,18 @@ export function buildFindSlotsRequest(
   partySize: string,
 ): AxiosRequestConfig {
   return createConfig(
-    'get',
-    `https://api.resy.com/4/find?lat=0&long=0&day=${encodeURIComponent(date)}&party_size=${encodeURIComponent(partySize)}&venue_id=${encodeURIComponent(venueId)}`,
-    createHeaders('https://resy.com'),
+    'post',
+    'https://api.resy.com/4/find',
+    createHeaders('https://resy.com', {
+      'content-type': 'application/json',
+    }),
+    {
+      lat: 0,
+      long: 0,
+      day: date,
+      party_size: Number.parseInt(partySize, 10),
+      venue_id: Number.parseInt(venueId, 10),
+    },
   );
 }
 
@@ -93,6 +111,14 @@ export function buildVenueCalendarRequest(
     )}&num_seats=${encodeURIComponent(partySize)}&start_date=${encodeURIComponent(
       startDate,
     )}&end_date=${encodeURIComponent(endDate)}`,
+    createHeaders('https://resy.com'),
+  );
+}
+
+export function buildVenueConfigRequest(venueId: string): AxiosRequestConfig {
+  return createConfig(
+    'get',
+    `https://api.resy.com/2/config?venue_id=${encodeURIComponent(venueId)}`,
     createHeaders('https://resy.com'),
   );
 }
