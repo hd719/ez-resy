@@ -15,9 +15,7 @@ export function withEnv<T>(values: Record<string, string | undefined>, run: () =
     }
   }
 
-  try {
-    return run();
-  } finally {
+  const restoreEnv = () => {
     for (const [key, value] of Object.entries(previousEnv)) {
       if (value === undefined) {
         delete process.env[key];
@@ -25,6 +23,20 @@ export function withEnv<T>(values: Record<string, string | undefined>, run: () =
         process.env[key] = value;
       }
     }
+  };
+
+  try {
+    const result = run();
+
+    if (result && typeof (result as unknown as PromiseLike<unknown>).then === 'function') {
+      return Promise.resolve(result).finally(restoreEnv) as T;
+    }
+
+    restoreEnv();
+    return result;
+  } catch (error) {
+    restoreEnv();
+    throw error;
   }
 }
 

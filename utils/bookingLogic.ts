@@ -44,6 +44,7 @@ interface VenueSearchContext {
 
 export function resetBookingState(): void {
   cachedExistingReservations = null;
+  cachedVenueSearchContexts.clear();
 }
 
 function logAxiosError(error: unknown): void {
