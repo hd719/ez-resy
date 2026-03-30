@@ -8,6 +8,7 @@ import {
   buildExistingReservationsRequest,
   buildFinalBookingRequest,
   buildFindSlotsRequest,
+  buildVenueDetailsRequest,
 } from './resyRequests.js';
 import {
   deserializeSearchSelection,
@@ -22,9 +23,24 @@ import type {
   ResolvedSearchPlan,
   SearchSelection,
   SlotSearchResponse,
+  ResyVenueEntry,
+  VenueDetailsResponse,
+  VenueSearchHit,
+  VenueSearchResponse,
 } from './types.js';
 
 let cachedExistingReservations: Promise<ExistingReservationEntry[]> | null = null;
+const cachedVenueSearchContexts = new Map<
+  string,
+  Promise<VenueSearchContext | null>
+>();
+
+interface VenueSearchContext {
+  venueId: string;
+  venueName: string;
+  latitude?: number;
+  longitude?: number;
+}
 
 export function resetBookingState(): void {
   cachedExistingReservations = null;
@@ -65,6 +81,24 @@ function normalizeDate(value: string | undefined): string | undefined {
   const trimmed = value.trim();
   const match = trimmed.match(/^\d{4}-\d{2}-\d{2}/);
   return match ? match[0] : trimmed;
+}
+
+function normalizeVenueName(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function extractResyVenueId(
+  value: VenueSearchHit['id'],
+): string | undefined {
+  if (typeof value === 'number' || typeof value === 'string') {
+    return String(value);
+  }
+
+  if (value && typeof value === 'object' && 'resy' in value && value.resy != null) {
+    return String(value.resy);
+  }
+
+  return undefined;
 }
 
 function extractReservationDate(entry: ExistingReservationEntry): string | undefined {
@@ -112,6 +146,76 @@ function targetIsBlocked(
 
 async function resolveSearchContext(): Promise<ResolvedSearchPlan> {
   return resolveSearchPlan();
+}
+
+async function loadVenueSearchContext(
+  venueId: string,
+): Promise<VenueSearchContext | null> {
+  const cached = cachedVenueSearchContexts.get(venueId);
+  if (cached) {
+    return cached;
+  }
+
+  const pending = (async () => {
+    try {
+      const response = await axios.request<VenueDetailsResponse>(
+        buildVenueDetailsRequest(venueId),
+      );
+      const venueName = response.data.name?.trim();
+
+      if (!venueName) {
+        console.error(`Unable to resolve venue metadata for ${venueId}.`);
+        return null;
+      }
+
+      return {
+        venueId,
+        venueName,
+        latitude: response.data.location?.latitude,
+        longitude: response.data.location?.longitude,
+      };
+    } catch (error: unknown) {
+      logAxiosError(error);
+      return null;
+    }
+  })();
+
+  cachedVenueSearchContexts.set(venueId, pending);
+  const result = await pending;
+
+  if (!result) {
+    cachedVenueSearchContexts.delete(venueId);
+  }
+
+  return result;
+}
+
+function buildVenueEntryFromSearchResult(
+  response: VenueSearchResponse,
+  searchContext: VenueSearchContext,
+): ResyVenueEntry | null {
+  const hits = response.search?.hits ?? [];
+  const matchedHit =
+    hits.find((hit) => extractResyVenueId(hit.id) === searchContext.venueId) ??
+    hits.find(
+      (hit) =>
+        normalizeVenueName(hit.name) === normalizeVenueName(searchContext.venueName),
+    );
+
+  if (!matchedHit) {
+    console.log(
+      `Search response did not include venue ${searchContext.venueName} (${searchContext.venueId}).`,
+    );
+    return null;
+  }
+
+  return {
+    venue: {
+      id: searchContext.venueId,
+      name: matchedHit.name,
+    },
+    slots: matchedHit.availability?.slots ?? [],
+  };
 }
 
 export async function checkForExistingBooking(): Promise<boolean> {
@@ -240,11 +344,28 @@ async function fetchSlotsForTarget(
   partySize: string,
 ): Promise<SlotSearchResponse | null> {
   try {
-    const response = await axios.request<SlotSearchResponse>(
-      buildFindSlotsRequest(venueId, date, partySize),
+    const searchContext = await loadVenueSearchContext(venueId);
+    if (!searchContext) {
+      return null;
+    }
+
+    const response = await axios.request<VenueSearchResponse>(
+      buildFindSlotsRequest(
+        searchContext.venueName,
+        date,
+        partySize,
+        searchContext.latitude,
+        searchContext.longitude,
+      ),
     );
 
-    return response.data;
+    const venueEntry = buildVenueEntryFromSearchResult(response.data, searchContext);
+
+    return {
+      results: {
+        venues: venueEntry ? [venueEntry] : [],
+      },
+    };
   } catch (error: unknown) {
     logAxiosError(error);
     return null;

@@ -66,23 +66,50 @@ export function buildExistingReservationsRequest(authToken: string): AxiosReques
 }
 
 export function buildFindSlotsRequest(
-  venueId: string,
+  venueName: string,
   date: string,
   partySize: string,
+  latitude?: number,
+  longitude?: number,
 ): AxiosRequestConfig {
+  const geo =
+    latitude !== undefined && longitude !== undefined
+      ? {
+          geo: {
+            latitude,
+            longitude,
+            radius: 1_000,
+          },
+        }
+      : {};
+
   return createConfig(
     'post',
-    'https://api.resy.com/4/find',
+    'https://api.resy.com/3/venuesearch/search',
     createHeaders('https://resy.com', {
       'content-type': 'application/json',
     }),
     {
-      lat: 0,
-      long: 0,
-      day: date,
-      party_size: Number.parseInt(partySize, 10),
-      venue_id: Number.parseInt(venueId, 10),
+      availability: true,
+      page: 1,
+      per_page: 20,
+      slot_filter: {
+        day: date,
+        party_size: Number.parseInt(partySize, 10),
+      },
+      types: ['venue'],
+      order_by: 'availability',
+      query: venueName,
+      ...geo,
     },
+  );
+}
+
+export function buildVenueDetailsRequest(venueId: string): AxiosRequestConfig {
+  return createConfig(
+    'get',
+    `https://api.resy.com/3/venue?id=${encodeURIComponent(venueId)}`,
+    createHeaders('https://resy.com'),
   );
 }
 

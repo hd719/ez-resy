@@ -26,6 +26,7 @@ test('getDiscoveryConfig derives defaults and horizon end date', () => {
       DISCOVERY_HORIZON_DAYS: '5',
       DISCOVERY_POLL_INTERVAL_SECONDS: '9',
       DISCOVERY_TIMEZONE: 'America/New_York',
+      DISCOVERY_TRIGGER_BOOKING: 'true',
     },
     () => {
       assert.deepEqual(getDiscoveryConfig(), {
@@ -36,6 +37,7 @@ test('getDiscoveryConfig derives defaults and horizon end date', () => {
         partySize: '2',
         intervalSeconds: 9,
         timezone: 'America/New_York',
+        triggerBooking: true,
       });
     },
   );
@@ -51,6 +53,7 @@ test('describeDiscoveryConfig summarizes the watcher settings', () => {
       partySize: '2',
       intervalSeconds: 15,
       timezone: 'America/New_York',
+      triggerBooking: false,
     }),
     'Discovery mode enabled for venue 94741. Polling the calendar every 15 seconds from 2026-03-30 through 2026-07-28 for party size 2 (America/New_York).',
   );

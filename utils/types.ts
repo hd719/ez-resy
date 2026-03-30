@@ -22,6 +22,14 @@ export interface ResyVenueEntry {
   slots: ResySlot[];
 }
 
+export interface VenueSearchHit {
+  id?: number | string | { resy?: number | string | null };
+  name: string;
+  availability?: {
+    slots?: ResySlot[];
+  };
+}
+
 export interface SearchTarget {
   venueId: string;
   date: string;
@@ -43,6 +51,12 @@ export interface ResolvedSearchPlan {
 export interface SlotSearchResponse {
   results: {
     venues: ResyVenueEntry[];
+  };
+}
+
+export interface VenueSearchResponse {
+  search?: {
+    hits?: VenueSearchHit[];
   };
 }
 
@@ -98,4 +112,17 @@ export interface VenueCalendarResponse {
 
 export interface VenueConfigResponse {
   calendar_date_to?: string;
+}
+
+export interface VenueDetailsResponse {
+  id?: {
+    resy?: number | string | null;
+  };
+  name?: string;
+  location?: {
+    latitude?: number;
+    longitude?: number;
+    locality?: string;
+    neighborhood?: string;
+  };
 }
