@@ -5,6 +5,7 @@ const REQUIRED_ENV_KEYS = [
   'LATEST',
   'PARTY_SIZE',
   'PAYMENT_ID',
+  'RESY_API_KEY',
   'VENUE_ID',
 ] as const;
 

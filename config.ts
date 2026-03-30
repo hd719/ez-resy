@@ -1,18 +1,19 @@
 import type { AxiosRequestConfig, Method } from 'axios';
 import { getRequiredEnv } from './utils/runtime.js';
 
-const RESY_API_KEY = 'VbWk7s3L4KiK5fzlO7JD3Q5EYolJI7n5';
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36';
 
 type ResyHeaders = Record<string, string>;
 
 function createHeaders(origin: string, extraHeaders: ResyHeaders = {}): ResyHeaders {
+  const resyApiKey = getRequiredEnv('RESY_API_KEY');
+
   return {
     authority: 'api.resy.com',
     accept: 'application/json, text/plain, */*',
     'accept-language': 'en-US,en;q=0.9,la;q=0.8',
-    authorization: `ResyAPI api_key="${RESY_API_KEY}"`,
+    authorization: `ResyAPI api_key="${resyApiKey}"`,
     'cache-control': 'no-cache',
     origin,
     referer: `${origin}/`,
