@@ -1,12 +1,15 @@
 import type { AxiosRequestConfig, Method } from 'axios';
-import { getOptionalEnv, getRequiredEnv } from './utils/runtime.js';
+import { getRequiredEnv } from './runtime.js';
 
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36';
 
 type ResyHeaders = Record<string, string>;
 
-function createHeaders(origin: string, extraHeaders: ResyHeaders = {}): ResyHeaders {
+function createHeaders(
+  origin: string,
+  extraHeaders: ResyHeaders = {},
+): ResyHeaders {
   const resyApiKey = getRequiredEnv('RESY_API_KEY');
 
   return {
@@ -42,17 +45,7 @@ function createConfig(
   };
 }
 
-function requireConfigValue(key: 'DATE' | 'VENUE_ID'): string {
-  const value = getOptionalEnv(key);
-
-  if (!value) {
-    throw new Error(`Missing required environment variable for this request builder: ${key}`);
-  }
-
-  return value;
-}
-
-export function existingReservationConfig(authToken: string): AxiosRequestConfig {
+export function buildExistingReservationsRequest(authToken: string): AxiosRequestConfig {
   return createConfig(
     'get',
     'https://api.resy.com/3/user/reservations?limit=10&offset=1&type=upcoming',
@@ -63,31 +56,50 @@ export function existingReservationConfig(authToken: string): AxiosRequestConfig
   );
 }
 
-export function slotConfig(): AxiosRequestConfig {
-  const date = requireConfigValue('DATE');
-  const partySize = getRequiredEnv('PARTY_SIZE');
-  const venueId = requireConfigValue('VENUE_ID');
-
+export function buildFindSlotsRequest(
+  venueId: string,
+  date: string,
+  partySize: string,
+): AxiosRequestConfig {
   return createConfig(
     'get',
-    `https://api.resy.com/4/find?lat=0&long=0&day=${date}&party_size=${partySize}&venue_id=${venueId}`,
+    `https://api.resy.com/4/find?lat=0&long=0&day=${encodeURIComponent(date)}&party_size=${encodeURIComponent(partySize)}&venue_id=${encodeURIComponent(venueId)}`,
     createHeaders('https://resy.com'),
   );
 }
 
-export function bookingConfig(token: string): AxiosRequestConfig {
-  const date = requireConfigValue('DATE');
-  const partySize = getRequiredEnv('PARTY_SIZE');
-  const slotId = encodeURIComponent(token);
-
+export function buildBookingDetailsRequest(
+  token: string,
+  date: string,
+  partySize: string,
+): AxiosRequestConfig {
   return createConfig(
     'get',
-    `https://api.resy.com/3/details?&day=${date}&party_size=${partySize}&config_id=${slotId}`,
+    `https://api.resy.com/3/details?&day=${encodeURIComponent(date)}&party_size=${encodeURIComponent(partySize)}&config_id=${encodeURIComponent(token)}`,
     createHeaders('https://resy.com'),
   );
 }
 
-export function finalConfig(authToken: string): AxiosRequestConfig {
+export function buildVenueCalendarRequest(
+  venueId: string,
+  startDate: string,
+  endDate: string,
+  partySize: string,
+): AxiosRequestConfig {
+  return createConfig(
+    'get',
+    `https://api.resy.com/4/venue/calendar?venue_id=${encodeURIComponent(
+      venueId,
+    )}&num_seats=${encodeURIComponent(partySize)}&start_date=${encodeURIComponent(
+      startDate,
+    )}&end_date=${encodeURIComponent(endDate)}`,
+    createHeaders('https://resy.com'),
+  );
+}
+
+export function buildFinalBookingRequest(
+  authToken: string,
+): AxiosRequestConfig {
   return createConfig(
     'post',
     'https://api.resy.com/3/book',

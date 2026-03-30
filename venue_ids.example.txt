@@ -1,0 +1,6 @@
+# Copy this to venue_ids.txt or point VENUE_IDS_FILE at your own file.
+# One venue ID per line. Commas are also supported.
+# The file order is the starting priority order before the weekly round-robin rotation.
+
+80201 - bungalow
+94741 - Ambassadors Clubhouse New York
