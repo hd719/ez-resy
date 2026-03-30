@@ -40,6 +40,7 @@ LATEST=
 PARTY_SIZE=
 PAYMENT_ID=
 AUTH_TOKEN=
+RESY_API_KEY=
 ```
 
 | Variable     | Description                                                            |
@@ -51,6 +52,7 @@ AUTH_TOKEN=
 | `PARTY_SIZE` | 🎵 All by myself... 🎵 (it's an `int`)                                 |
 | `PAYMENT_ID` | You'll need this from your account. More details below.                |
 | `AUTH_TOKEN` | Same as above — just a JWT you can easily find.                        |
+| `RESY_API_KEY` | Resy's API key used in request headers.                               |
 
 ### Venue ID
 
@@ -67,6 +69,10 @@ user information. `payment_method` is in there as an object and has a field of `
 
 This is easier to find. You can head to Application > Cookies > https://resy.com and find the `authToken` cookie. This
 does expire after a while, so you'll need to update it every so often.
+
+### Resy API Key
+
+Keep this in `.env` rather than source. If Resy rotates the key, update `RESY_API_KEY` there without changing the code.
 
 ## Usage
 
