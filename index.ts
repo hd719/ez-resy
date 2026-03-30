@@ -3,40 +3,87 @@ import {
   fetchDataAndParseSlots,
   getBookingConfig,
   makeBooking,
+  resetBookingState,
 } from './utils/bookingLogic.js';
+import {
+  describeDiscoveryConfig,
+  getDiscoveryConfig,
+  runCalendarDiscovery,
+} from './utils/discovery.js';
 import { checkTokenExpiration } from './utils/helpers.js';
+import {
+  getPollingConfig,
+  type PollingAttemptOutcome,
+  runWithPolling,
+} from './utils/polling.js';
+import { buildSearchPlan, describeSearchPlan } from './utils/searchTargets.js';
 import { getRequiredEnv } from './utils/runtime.js';
 
-async function main(): Promise<void> {
-  const authToken = getRequiredEnv('AUTH_TOKEN');
-  const tokenIsValid = checkTokenExpiration(authToken);
+async function runBookingPass(): Promise<PollingAttemptOutcome> {
+  resetBookingState();
 
-  if (!tokenIsValid) {
-    return;
-  }
-
-  const hasExistingBooking = await checkForExistingBooking();
-  if (hasExistingBooking) {
-    return;
+  if (await checkForExistingBooking()) {
+    return {
+      success: false,
+      shouldContinue: false,
+    };
   }
 
   const slotId = await fetchDataAndParseSlots();
   if (!slotId) {
-    return;
+    return {
+      success: false,
+      shouldContinue: true,
+    };
   }
 
   const bookToken = await getBookingConfig(slotId);
   if (!bookToken) {
-    return;
+    return {
+      success: false,
+      shouldContinue: true,
+    };
   }
 
   const booking = await makeBooking(bookToken);
+
   if (booking?.resy_token) {
     console.log("You've got a reservation!");
+    return {
+      success: true,
+      shouldContinue: false,
+    };
+  }
+
+  console.log('Booking request completed without a reservation token.');
+  return {
+    success: false,
+    shouldContinue: true,
+  };
+}
+
+async function main(): Promise<void> {
+  const discoveryConfig = getDiscoveryConfig();
+
+  if (discoveryConfig.enabled) {
+    console.log(describeDiscoveryConfig(discoveryConfig));
+    await runCalendarDiscovery(discoveryConfig);
     return;
   }
 
-  console.log('Booking attempt completed without a reservation token.');
+  const authToken = getRequiredEnv('AUTH_TOKEN');
+  const pollingConfig = getPollingConfig();
+
+  if (!checkTokenExpiration(authToken)) {
+    return;
+  }
+
+  console.log(describeSearchPlan(buildSearchPlan()));
+
+  const booked = await runWithPolling(runBookingPass, pollingConfig);
+  if (!booked) {
+    console.log('Booking run completed without a reservation.');
+  }
 }
 
 main().catch((error: unknown) => {

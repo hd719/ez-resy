@@ -34,7 +34,25 @@ You'll need a `.env` file that contains the following:
 
 ```env
 VENUE_ID=
+VENUE_IDS=
+VENUE_IDS_FILE=
 DATE=
+DATES=
+DATES_FILE=
+ANY_SATURDAY=
+SEARCH_START_DATE=
+SATURDAY_LOOKAHEAD_COUNT=
+SATURDAY_LOOKAHEAD_WEEKS=
+POLL_ENABLED=
+POLL_START_TIME=
+POLL_END_TIME=
+POLL_INTERVAL_SECONDS=
+POLL_TIMEZONE=
+DISCOVERY_MODE=
+DISCOVERY_VENUE_ID=
+DISCOVERY_START_DATE=
+DISCOVERY_PARTY_SIZE=
+DISCOVERY_POLL_INTERVAL_SECONDS=
 EARLIEST=
 LATEST=
 PARTY_SIZE=
@@ -43,21 +61,55 @@ AUTH_TOKEN=
 RESY_API_KEY=
 ```
 
-| Variable     | Description                                                            |
-| ------------ | ---------------------------------------------------------------------- |
-| `VENUE_ID`   | Resy's venue ID.                                                       |
-| `DATE`       | The `YYYY-MM-DD` format for the meal you want to stuff your face with. |
-| `EARLIEST`   | The earliest time, in 24-hr format, you're willing to eat.             |
-| `LATEST`     | Same as above: how late is too late to sit down?                       |
-| `PARTY_SIZE` | 🎵 All by myself... 🎵 (it's an `int`)                                 |
-| `PAYMENT_ID` | You'll need this from your account. More details below.                |
-| `AUTH_TOKEN` | Same as above — just a JWT you can easily find.                        |
-| `RESY_API_KEY` | Resy's API key used in request headers.                               |
+| Variable | Description |
+| --- | --- |
+| `VENUE_ID` | Single-venue fallback when no venue list file is present. |
+| `VENUE_IDS` | Optional comma-separated venue list. If set, it overrides both `VENUE_ID` and `venue_ids.txt`. |
+| `VENUE_IDS_FILE` | Optional path to a text file with one or more venue IDs. If set, it overrides `VENUE_ID`. |
+| `DATE` | The `YYYY-MM-DD` reservation date for single-date mode. |
+| `DATES` | Optional comma-separated list of `YYYY-MM-DD` dates to search. |
+| `DATES_FILE` | Optional path to a text file with one or more dates. |
+| `ANY_SATURDAY` | When `true`, ignore `DATE` and search upcoming Saturdays instead. |
+| `SEARCH_START_DATE` | Optional `YYYY-MM-DD` anchor for any-Saturday mode. Defaults to today. |
+| `SATURDAY_LOOKAHEAD_COUNT` | How many Saturdays to check. Takes precedence over `SATURDAY_LOOKAHEAD_WEEKS`. |
+| `SATURDAY_LOOKAHEAD_WEEKS` | How many weeks of Saturdays to check in any-Saturday mode. Defaults to `8`. |
+| `POLL_ENABLED` | When `true`, wait for the configured polling window and retry until it closes or a booking succeeds. |
+| `POLL_START_TIME` | Required when polling is enabled. Use `HH:MM` or `HH:MM:SS` in 24-hour time. |
+| `POLL_END_TIME` | Required when polling is enabled. Use `HH:MM` or `HH:MM:SS` in 24-hour time. |
+| `POLL_INTERVAL_SECONDS` | Seconds between attempts while polling. Defaults to `5`. |
+| `POLL_TIMEZONE` | IANA timezone used for the polling window. Defaults to `America/New_York`. |
+| `DISCOVERY_MODE` | When `true`, run safe horizon discovery instead of booking mode. |
+| `DISCOVERY_VENUE_ID` | Venue ID to monitor in discovery mode. |
+| `DISCOVERY_START_DATE` | Optional `YYYY-MM-DD` anchor for discovery mode. |
+| `DISCOVERY_PARTY_SIZE` | Optional party size used for discovery polling. |
+| `DISCOVERY_POLL_INTERVAL_SECONDS` | Seconds between discovery checks. |
+| `EARLIEST` | The earliest time, in 24-hr format, you're willing to eat. |
+| `LATEST` | Same as above: how late is too late to sit down? |
+| `PARTY_SIZE` | 🎵 All by myself... 🎵 (it's an `int`) |
+| `PAYMENT_ID` | You'll need this from your account. More details below. |
+| `AUTH_TOKEN` | Same as above — just a JWT you can easily find. |
+| `RESY_API_KEY` | Resy's API key used in request headers. |
 
-### Venue ID
+### Venue IDs
 
-This is the ID of the restaurant you want to eat at. You can find this by going to the Network tab in your browser's
-inspector and searching for `venue?filter` after navigating to the restaurant's page.
+For a single restaurant, keep `VENUE_ID` in `.env`.
+
+For multi-venue searches, either set `VENUE_IDS`, create a `venue_ids.txt` file in the repo root, or point
+`VENUE_IDS_FILE` at another path. Each line may contain one venue ID, `#` comments are ignored, and commas are also
+supported.
+
+Example:
+
+```txt
+# One venue ID per line
+80201
+80444
+```
+
+The precedence is `VENUE_IDS`, then `VENUE_IDS_FILE`, then repo-root `venue_ids.txt`, then `VENUE_ID`.
+
+The venue ID itself can be found by going to the Network tab in your browser's inspector and searching for
+`venue?filter` after navigating to the restaurant's page.
 
 ### Payment ID
 
@@ -82,10 +134,51 @@ After adding your configuration, you can run the script with:
 npm run start
 ```
 
-This will trigger a bash file called `env_manager.sh` that will set the date in the `.env` to two weeks from now (when
-most restaurants start opening up reservations) and then run the script. However, you can modify it to run on the `.env`
-as is by setting the date manually and then running:
+This will trigger `env_manager.sh` before the build. By default, it shifts `DATE` forward by `14` days for single-date
+mode. Override that with `BOOKING_HORIZON_DAYS` if your target venue opens on a different rolling window. If
+`ANY_SATURDAY=true`, the script leaves `DATE` alone.
+
+If you want to run the script exactly as configured in `.env`, use:
 
 ```bash
 npm run start:today
 ```
+
+To search every Saturday in the configured lookahead window, set `ANY_SATURDAY=true` and optionally adjust
+`SATURDAY_LOOKAHEAD_COUNT`, `SATURDAY_LOOKAHEAD_WEEKS`, or `SEARCH_START_DATE`. In that mode, `DATE` is ignored and the
+script checks each Saturday against every configured venue, rotating the venue order each week and stopping at the first
+successful booking.
+
+To poll around a known release time, enable polling and define a bounded window. The script will wait until the start
+time, rerun the full booking pass every `POLL_INTERVAL_SECONDS`, and stop when a booking succeeds or the polling window
+ends.
+
+Example for Bungalow's `11:00 AM` New York release:
+
+```env
+ANY_SATURDAY=true
+POLL_ENABLED=true
+POLL_START_TIME=10:59:00
+POLL_END_TIME=11:05:00
+POLL_INTERVAL_SECONDS=5
+POLL_TIMEZONE=America/New_York
+```
+
+For safe release-window discovery, enable discovery mode instead of booking mode. Discovery mode polls the calendar
+horizon for one venue, logs whenever `last_calendar_day` advances, and never attempts a booking.
+
+```env
+DISCOVERY_MODE=true
+DISCOVERY_VENUE_ID=80201
+DISCOVERY_START_DATE=2026-03-30
+DISCOVERY_PARTY_SIZE=2
+DISCOVERY_POLL_INTERVAL_SECONDS=5
+```
+
+The booking guard is date-based rather than venue-based. If you already hold a reservation on one of the candidate
+dates, the script skips that date across every configured restaurant so it does not waste requests on dates you cannot
+book again.
+
+For Bungalow in New York, the live venue data currently indicates an `11:00 AM EST` release on a `20`-day rolling
+window. For that setup, use `ANY_SATURDAY=true`, `PARTY_SIZE=2`, `EARLIEST=17:00`, `LATEST=20:30`, and either
+`VENUE_ID=80201` or a `venue_ids.txt` list that includes `80201`.

@@ -93,3 +93,51 @@ function decodeJwtPayload(token: string): { exp?: number } | null {
     return null;
   }
 }
+
+function parseLocalDate(date: string): Date {
+  return new Date(`${date}T12:00:00`);
+}
+
+export function formatDateForEnv(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function isSaturday(date: string): boolean {
+  return parseLocalDate(date).getDay() === 6;
+}
+
+export function addDays(date: string, days: number): string {
+  const nextDate = parseLocalDate(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return formatDateForEnv(nextDate);
+}
+
+export function getUpcomingWeekdayDates(
+  startDate: string,
+  weekday: number,
+  count: number,
+  includeStartDate = true,
+): string[] {
+  const dates: string[] = [];
+  const current = parseLocalDate(startDate);
+  const startTimestamp = current.getTime();
+
+  while (dates.length < count) {
+    const currentTimestamp = current.getTime();
+    const isStartDate = currentTimestamp === startTimestamp;
+
+    if (
+      current.getDay() === weekday &&
+      (includeStartDate || !isStartDate)
+    ) {
+      dates.push(formatDateForEnv(current));
+    }
+
+    current.setDate(current.getDate() + 1);
+  }
+
+  return dates;
+}

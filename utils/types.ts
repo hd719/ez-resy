@@ -22,6 +22,24 @@ export interface ResyVenueEntry {
   slots: ResySlot[];
 }
 
+export interface SearchTarget {
+  venueId: string;
+  date: string;
+}
+
+export interface SearchSelection {
+  venueId: string;
+  date: string;
+  slotToken: string;
+  venueName?: string;
+}
+
+export interface ResolvedSearchPlan {
+  venueIds: string[];
+  dates: string[];
+  targets: SearchTarget[];
+}
+
 export interface SlotSearchResponse {
   results: {
     venues: ResyVenueEntry[];
@@ -29,13 +47,29 @@ export interface SlotSearchResponse {
 }
 
 export interface ExistingReservationEntry {
+  date?: string;
+  reservation_date?: string;
+  service_date?: string;
   venue?: {
     id?: number | string;
+  };
+  reservation?: {
+    date?: string;
+    reservation_date?: string;
+    service_date?: string;
+    venue?: {
+      id?: number | string;
+    };
   };
 }
 
 export interface ExistingReservationsResponse {
   reservations: ExistingReservationEntry[];
+}
+
+export interface BookingSearchOptions {
+  venueIds?: string[];
+  dates?: string[];
 }
 
 export interface BookingTokenResponse {
@@ -46,4 +80,18 @@ export interface BookingTokenResponse {
 
 export interface BookingResponse {
   resy_token?: string;
+}
+
+export interface VenueCalendarDay {
+  date: string;
+  inventory?: {
+    reservation?: string;
+    event?: string;
+    'walk-in'?: string;
+  };
+}
+
+export interface VenueCalendarResponse {
+  scheduled?: VenueCalendarDay[];
+  last_calendar_day?: string;
 }

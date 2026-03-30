@@ -7,7 +7,7 @@
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "start": "./env_manager.sh && npm run build && dotenv -e .env node dist/index.js",
     "start:today": "npm run build && dotenv -e .env node dist/index.js",
-    "test": "npm run build"
+    "test": "npm run build && node --test dist/tests/**/*.test.js"
   },
   "keywords": [],
   "type": "module",
