@@ -95,3 +95,7 @@ export interface VenueCalendarResponse {
   scheduled?: VenueCalendarDay[];
   last_calendar_day?: string;
 }
+
+export interface VenueConfigResponse {
+  calendar_date_to?: string;
+}
