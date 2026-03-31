@@ -175,6 +175,35 @@ DISCOVERY_PARTY_SIZE=2
 DISCOVERY_POLL_INTERVAL_SECONDS=5
 ```
 
+### Persistent Discovery Logging
+
+If you want to leave discovery mode running on a machine like a Mac mini and review the release time later, run it in
+`tmux` and append output to a logfile:
+
+```bash
+tmux new -As resy
+cd /Users/hd/Developer/ez-resy
+mkdir -p logs
+./node_modules/.bin/dotenv -e .env node dist/index.js 2>&1 | tee -a logs/discovery-94741.log
+```
+
+Detach from `tmux` with `Ctrl-b d`.
+
+To inspect the logfile later over SSH:
+
+```bash
+cd /Users/hd/Developer/ez-resy
+tail -f logs/discovery-94741.log
+```
+
+To see only the release event after it happens:
+
+```bash
+rg "Calendar advanced" logs/discovery-94741.log
+```
+
+This is useful for answering "what exact Eastern time did the next booking day open for this venue?"
+
 The booking guard is date-based rather than venue-based. If you already hold a reservation on one of the candidate
 dates, the script skips that date across every configured restaurant so it does not waste requests on dates you cannot
 book again.
