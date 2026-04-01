@@ -1,13 +1,22 @@
-import axios from 'axios';
 import { formatDateForEnv } from './helpers.js';
-import { buildVenueConfigRequest } from './resyRequests.js';
+import {
+  buildFindSlotsRequest,
+  buildVenueConfigRequest,
+  buildVenueDetailsRequest,
+} from './resyRequests.js';
+import { getErrorDetail, requestJson } from './http.js';
 import {
   getBooleanEnv,
   getOptionalEnv,
   getPositiveIntegerEnv,
   getRequiredEnv,
 } from './runtime.js';
-import type { VenueConfigResponse } from './types.js';
+import type {
+  ResySlot,
+  VenueConfigResponse,
+  VenueDetailsResponse,
+  VenueSearchResponse,
+} from './types.js';
 
 const DEFAULT_DISCOVERY_INTERVAL_SECONDS = 15;
 const DEFAULT_DISCOVERY_TIMEZONE = 'America/New_York';
@@ -22,6 +31,22 @@ export interface DiscoveryConfig {
   intervalSeconds: number;
   timezone: string;
   triggerBooking: boolean;
+}
+
+interface DiscoveryVenueSearchContext {
+  venueId: string;
+  venueName: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+interface DiscoveryAvailability {
+  slotCount: number;
+  firstSlot: ResySlot | null;
+}
+
+interface DiscoveryRunOptions {
+  stopAfterFirstBookableDate?: boolean;
 }
 
 export function getDiscoveryConfig(): DiscoveryConfig {
@@ -68,25 +93,36 @@ export function describeDiscoveryConfig(config: DiscoveryConfig): string {
 
 export async function runCalendarDiscovery(
   config = getDiscoveryConfig(),
+  options: DiscoveryRunOptions = {},
 ): Promise<string> {
   const venueId = config.venueId ?? getRequiredEnv('DISCOVERY_VENUE_ID');
-  const initialLastCalendarDay = await fetchLastCalendarDay(config);
+  let currentLastCalendarDay = await fetchLastCalendarDayWithRetry(config);
 
   console.log(
-    `Initial last_calendar_day for venue ${venueId} is ${initialLastCalendarDay}. Waiting for it to advance.`,
+    `Initial last_calendar_day for venue ${venueId} is ${currentLastCalendarDay}. Waiting for it to advance.`,
   );
 
   while (true) {
     await sleep(config.intervalSeconds * 1000);
 
-    const lastCalendarDay = await fetchLastCalendarDay(config);
-    if (lastCalendarDay !== initialLastCalendarDay) {
+    const lastCalendarDay = await fetchLastCalendarDayWithRetry(config);
+    if (lastCalendarDay !== currentLastCalendarDay) {
       console.log(
         `Calendar advanced for venue ${venueId} at ${formatDiscoveryTimestamp(
           config.timezone,
-        )}: ${initialLastCalendarDay} -> ${lastCalendarDay}`,
+        )}: ${currentLastCalendarDay} -> ${lastCalendarDay}`,
       );
-      return lastCalendarDay;
+      await waitForDateToBecomeBookable(config, lastCalendarDay);
+
+      if (options.stopAfterFirstBookableDate) {
+        return lastCalendarDay;
+      }
+
+      currentLastCalendarDay = lastCalendarDay;
+      console.log(
+        `Continuing discovery for venue ${venueId}. Waiting for the next calendar advance beyond ${currentLastCalendarDay}.`,
+      );
+      continue;
     }
 
     console.log(
@@ -97,12 +133,88 @@ export async function runCalendarDiscovery(
   }
 }
 
+async function waitForDateToBecomeBookable(
+  config: DiscoveryConfig,
+  targetDate: string,
+): Promise<string> {
+  const venueId = config.venueId ?? getRequiredEnv('DISCOVERY_VENUE_ID');
+  const venueSearchContext = await loadVenueSearchContextWithRetry(config);
+
+  console.log(
+    `Calendar now includes ${targetDate} for venue ${venueId}. Waiting for the date to become bookable.`,
+  );
+
+  while (true) {
+    const availability = await fetchBookableAvailabilityWithRetry(
+      config,
+      targetDate,
+      venueSearchContext,
+    );
+    if (availability.slotCount > 0) {
+      const firstSlotDescription = availability.firstSlot
+        ? ` First slot: ${availability.firstSlot.date.start} (${availability.firstSlot.config.type}).`
+        : '';
+
+      console.log(
+        `Date ${targetDate} became bookable for venue ${venueId} at ${formatDiscoveryTimestamp(
+          config.timezone,
+        )} with ${availability.slotCount} slot(s).${firstSlotDescription}`,
+      );
+      return targetDate;
+    }
+
+    console.log(
+      `No bookable inventory yet for venue ${venueId} on ${targetDate} at ${formatDiscoveryTimestamp(
+        config.timezone,
+      )}.`,
+    );
+    await sleep(config.intervalSeconds * 1000);
+  }
+}
+
+async function fetchLastCalendarDayWithRetry(
+  config: DiscoveryConfig,
+): Promise<string> {
+  const venueId = config.venueId ?? getRequiredEnv('DISCOVERY_VENUE_ID');
+
+  while (true) {
+    try {
+      return await fetchLastCalendarDay(config);
+    } catch (error: unknown) {
+      logDiscoveryRequestError(error, venueId, config);
+      await sleep(config.intervalSeconds * 1000);
+    }
+  }
+}
+
+async function fetchBookableAvailabilityWithRetry(
+  config: DiscoveryConfig,
+  targetDate: string,
+  venueSearchContext: DiscoveryVenueSearchContext,
+): Promise<DiscoveryAvailability> {
+  const venueId = config.venueId ?? getRequiredEnv('DISCOVERY_VENUE_ID');
+
+  while (true) {
+    try {
+      return await fetchBookableAvailability(config, targetDate, venueSearchContext);
+    } catch (error: unknown) {
+      logDiscoveryRequestError(
+        error,
+        venueId,
+        config,
+        `bookability check for ${targetDate}`,
+      );
+      await sleep(config.intervalSeconds * 1000);
+    }
+  }
+}
+
 async function fetchLastCalendarDay(config: DiscoveryConfig): Promise<string> {
   const venueId = config.venueId ?? getRequiredEnv('DISCOVERY_VENUE_ID');
-  const response = await axios.request<VenueConfigResponse>(
+  const response = await requestJson<VenueConfigResponse>(
     buildVenueConfigRequest(venueId),
   );
-  const lastCalendarDay = response.data.calendar_date_to;
+  const lastCalendarDay = response.calendar_date_to;
 
   if (!lastCalendarDay) {
     throw new Error(
@@ -111,6 +223,109 @@ async function fetchLastCalendarDay(config: DiscoveryConfig): Promise<string> {
   }
 
   return lastCalendarDay;
+}
+
+async function fetchBookableAvailability(
+  config: DiscoveryConfig,
+  targetDate: string,
+  venueSearchContext: DiscoveryVenueSearchContext,
+): Promise<DiscoveryAvailability> {
+  const response = await requestJson<VenueSearchResponse>(
+    buildFindSlotsRequest(
+      venueSearchContext.venueName,
+      targetDate,
+      config.partySize,
+      venueSearchContext.latitude,
+      venueSearchContext.longitude,
+    ),
+  );
+
+  const slots = extractMatchedVenueSlots(response, venueSearchContext);
+
+  return {
+    slotCount: slots.length,
+    firstSlot: slots[0] ?? null,
+  };
+}
+
+async function loadVenueSearchContextWithRetry(
+  config: DiscoveryConfig,
+): Promise<DiscoveryVenueSearchContext> {
+  const venueId = config.venueId ?? getRequiredEnv('DISCOVERY_VENUE_ID');
+
+  while (true) {
+    try {
+      return await loadVenueSearchContext(config);
+    } catch (error: unknown) {
+      logDiscoveryRequestError(error, venueId, config, 'venue metadata lookup');
+      await sleep(config.intervalSeconds * 1000);
+    }
+  }
+}
+
+async function loadVenueSearchContext(
+  config: DiscoveryConfig,
+): Promise<DiscoveryVenueSearchContext> {
+  const venueId = config.venueId ?? getRequiredEnv('DISCOVERY_VENUE_ID');
+  const response = await requestJson<VenueDetailsResponse>(
+    buildVenueDetailsRequest(venueId),
+  );
+  const venueName = response.name?.trim();
+
+  if (!venueName) {
+    throw new Error(`Unable to resolve venue metadata for ${venueId}.`);
+  }
+
+  return {
+    venueId,
+    venueName,
+    latitude: response.location?.latitude,
+    longitude: response.location?.longitude,
+  };
+}
+
+function extractMatchedVenueSlots(
+  response: VenueSearchResponse,
+  searchContext: DiscoveryVenueSearchContext,
+): ResySlot[] {
+  const hits = response.search?.hits ?? [];
+  const matchedHit =
+    hits.find((hit) => extractResyVenueId(hit.id) === searchContext.venueId) ??
+    hits.find((hit) => normalizeVenueName(hit.name ?? '') === normalizeVenueName(searchContext.venueName));
+
+  return matchedHit?.availability?.slots ?? [];
+}
+
+function logDiscoveryRequestError(
+  error: unknown,
+  venueId: string,
+  config: DiscoveryConfig,
+  operation = 'calendar check',
+): void {
+  const timestamp = formatDiscoveryTimestamp(config.timezone);
+  const detail = getErrorDetail(error);
+
+  console.error(
+    `Discovery ${operation} failed for venue ${venueId} at ${timestamp}: ${detail}. Retrying in ${config.intervalSeconds} seconds.`,
+  );
+}
+
+function normalizeVenueName(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function extractResyVenueId(
+  value: number | string | { resy?: number | string | null } | undefined,
+): string | undefined {
+  if (typeof value === 'number' || typeof value === 'string') {
+    return String(value);
+  }
+
+  if (value && typeof value === 'object' && 'resy' in value && value.resy != null) {
+    return String(value.resy);
+  }
+
+  return undefined;
 }
 
 function formatDiscoveryTimestamp(timezone: string): string {

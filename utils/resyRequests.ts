@@ -1,4 +1,4 @@
-import type { AxiosRequestConfig, Method } from 'axios';
+import type { HttpMethod, ResyRequestConfig } from './http.js';
 import { getOptionalEnv, getRequiredEnv } from './runtime.js';
 
 const USER_AGENT =
@@ -40,21 +40,20 @@ function createHeaders(
 }
 
 function createConfig(
-  method: Method,
+  method: HttpMethod,
   url: string,
   headers: ResyHeaders,
   data?: unknown,
-): AxiosRequestConfig {
+): ResyRequestConfig {
   return {
     method,
-    maxBodyLength: Infinity,
     url,
     headers,
     ...(data === undefined ? {} : { data }),
   };
 }
 
-export function buildExistingReservationsRequest(authToken: string): AxiosRequestConfig {
+export function buildExistingReservationsRequest(authToken: string): ResyRequestConfig {
   return createConfig(
     'get',
     'https://api.resy.com/3/user/reservations?limit=10&offset=1&type=upcoming',
@@ -71,7 +70,7 @@ export function buildFindSlotsRequest(
   partySize: string,
   latitude?: number,
   longitude?: number,
-): AxiosRequestConfig {
+): ResyRequestConfig {
   const geo =
     latitude !== undefined && longitude !== undefined
       ? {
@@ -105,7 +104,7 @@ export function buildFindSlotsRequest(
   );
 }
 
-export function buildVenueDetailsRequest(venueId: string): AxiosRequestConfig {
+export function buildVenueDetailsRequest(venueId: string): ResyRequestConfig {
   return createConfig(
     'get',
     `https://api.resy.com/3/venue?id=${encodeURIComponent(venueId)}`,
@@ -117,7 +116,7 @@ export function buildBookingDetailsRequest(
   token: string,
   date: string,
   partySize: string,
-): AxiosRequestConfig {
+): ResyRequestConfig {
   return createConfig(
     'get',
     `https://api.resy.com/3/details?&day=${encodeURIComponent(date)}&party_size=${encodeURIComponent(partySize)}&config_id=${encodeURIComponent(token)}`,
@@ -130,7 +129,7 @@ export function buildVenueCalendarRequest(
   startDate: string,
   endDate: string,
   partySize: string,
-): AxiosRequestConfig {
+): ResyRequestConfig {
   return createConfig(
     'get',
     `https://api.resy.com/4/venue/calendar?venue_id=${encodeURIComponent(
@@ -142,7 +141,7 @@ export function buildVenueCalendarRequest(
   );
 }
 
-export function buildVenueConfigRequest(venueId: string): AxiosRequestConfig {
+export function buildVenueConfigRequest(venueId: string): ResyRequestConfig {
   return createConfig(
     'get',
     `https://api.resy.com/2/config?venue_id=${encodeURIComponent(venueId)}`,
@@ -152,7 +151,7 @@ export function buildVenueConfigRequest(venueId: string): AxiosRequestConfig {
 
 export function buildFinalBookingRequest(
   authToken: string,
-): AxiosRequestConfig {
+): ResyRequestConfig {
   return createConfig(
     'post',
     'https://api.resy.com/3/book',

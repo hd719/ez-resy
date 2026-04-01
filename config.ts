@@ -1,4 +1,4 @@
-import type { AxiosRequestConfig, Method } from 'axios';
+import type { HttpMethod, ResyRequestConfig } from './utils/http.js';
 import { getOptionalEnv, getRequiredEnv } from './utils/runtime.js';
 
 const USER_AGENT =
@@ -30,13 +30,12 @@ function createHeaders(origin: string, extraHeaders: ResyHeaders = {}): ResyHead
 }
 
 function createConfig(
-  method: Method,
+  method: HttpMethod,
   url: string,
   headers: ResyHeaders,
-): AxiosRequestConfig {
+): ResyRequestConfig {
   return {
     method,
-    maxBodyLength: Infinity,
     url,
     headers,
   };
@@ -52,7 +51,7 @@ function requireConfigValue(key: 'DATE' | 'VENUE_ID'): string {
   return value;
 }
 
-export function existingReservationConfig(authToken: string): AxiosRequestConfig {
+export function existingReservationConfig(authToken: string): ResyRequestConfig {
   return createConfig(
     'get',
     'https://api.resy.com/3/user/reservations?limit=10&offset=1&type=upcoming',
@@ -63,7 +62,7 @@ export function existingReservationConfig(authToken: string): AxiosRequestConfig
   );
 }
 
-export function slotConfig(): AxiosRequestConfig {
+export function slotConfig(): ResyRequestConfig {
   const date = requireConfigValue('DATE');
   const partySize = getRequiredEnv('PARTY_SIZE');
   const venueId = requireConfigValue('VENUE_ID');
@@ -75,7 +74,7 @@ export function slotConfig(): AxiosRequestConfig {
   );
 }
 
-export function bookingConfig(token: string): AxiosRequestConfig {
+export function bookingConfig(token: string): ResyRequestConfig {
   const date = requireConfigValue('DATE');
   const partySize = getRequiredEnv('PARTY_SIZE');
   const slotId = encodeURIComponent(token);
@@ -87,7 +86,7 @@ export function bookingConfig(token: string): AxiosRequestConfig {
   );
 }
 
-export function finalConfig(authToken: string): AxiosRequestConfig {
+export function finalConfig(authToken: string): ResyRequestConfig {
   return createConfig(
     'post',
     'https://api.resy.com/3/book',

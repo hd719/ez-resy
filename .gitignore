@@ -1,3 +1,5 @@
 .env
 /node_modules
 /dist
+/logs/*
+/booking_watch_questions.md

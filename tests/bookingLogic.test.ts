@@ -1,14 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios';
 import {
   fetchDataAndParseSlots,
   resetBookingState,
 } from '../utils/bookingLogic.js';
 import { deserializeSearchSelection } from '../utils/searchTargets.js';
-import { withEnv } from './testUtils.js';
-
-type MockResponse = Pick<AxiosResponse, 'data'>;
+import { withEnv, withMockedFetch, type MockFetchCall } from './testUtils.js';
 
 function createSlot(token: string, start: string, type = 'Dining Room') {
   return {
@@ -17,20 +14,8 @@ function createSlot(token: string, start: string, type = 'Dining Room') {
   };
 }
 
-function withMockedAxiosRequest<T>(
-  handler: (config: AxiosRequestConfig) => Promise<MockResponse>,
-  run: () => Promise<T>,
-): Promise<T> {
-  const originalRequest = axios.request;
-  axios.request = handler as typeof axios.request;
-
-  return run().finally(() => {
-    axios.request = originalRequest;
-  });
-}
-
 test('fetchDataAndParseSlots picks the configured venue from venue search hits', async () => {
-  const requests: AxiosRequestConfig[] = [];
+  const requests: MockFetchCall[] = [];
 
   await withEnv(
     {
@@ -45,16 +30,16 @@ test('fetchDataAndParseSlots picks the configured venue from venue search hits',
       DISCOVERY_MODE: undefined,
     },
     async () => {
-      await withMockedAxiosRequest(async (config) => {
-        requests.push(config);
+      await withMockedFetch(async (call) => {
+        requests.push(call);
 
-        if (config.url?.includes('/3/user/reservations')) {
-          return { data: { reservations: [] } };
+        if (call.input.includes('/3/user/reservations')) {
+          return { body: { reservations: [] } };
         }
 
-        if (config.url === 'https://api.resy.com/3/venue?id=94741') {
+        if (call.input === 'https://api.resy.com/3/venue?id=94741') {
           return {
-            data: {
+            body: {
               name: 'Ambassadors Clubhouse New York',
               location: {
                 latitude: 40.7476,
@@ -64,9 +49,9 @@ test('fetchDataAndParseSlots picks the configured venue from venue search hits',
           };
         }
 
-        if (config.url === 'https://api.resy.com/3/venuesearch/search') {
+        if (call.input === 'https://api.resy.com/3/venuesearch/search') {
           return {
-            data: {
+            body: {
               search: {
                 hits: [
                   {
@@ -92,7 +77,7 @@ test('fetchDataAndParseSlots picks the configured venue from venue search hits',
           };
         }
 
-        throw new Error(`Unexpected request: ${config.method} ${config.url}`);
+        throw new Error(`Unexpected request: ${call.init?.method} ${call.input}`);
       }, async () => {
         resetBookingState();
         const selection = await fetchDataAndParseSlots();
@@ -109,10 +94,10 @@ test('fetchDataAndParseSlots picks the configured venue from venue search hits',
   );
 
   const searchRequest = requests.find(
-    (config) => config.url === 'https://api.resy.com/3/venuesearch/search',
+    (call) => call.input === 'https://api.resy.com/3/venuesearch/search',
   );
   assert.ok(searchRequest);
-  assert.deepEqual(searchRequest.data, {
+  assert.deepEqual(JSON.parse(String(searchRequest.init?.body)), {
     availability: true,
     page: 1,
     per_page: 20,
@@ -147,15 +132,15 @@ test('fetchDataAndParseSlots falls back to normalized venue-name matching and re
       DISCOVERY_MODE: undefined,
     },
     async () => {
-      await withMockedAxiosRequest(async (config) => {
-        if (config.url?.includes('/3/user/reservations')) {
-          return { data: { reservations: [] } };
+      await withMockedFetch(async (call) => {
+        if (call.input.includes('/3/user/reservations')) {
+          return { body: { reservations: [] } };
         }
 
-        if (config.url === 'https://api.resy.com/3/venue?id=94741') {
+        if (call.input === 'https://api.resy.com/3/venue?id=94741') {
           venueDetailsRequests += 1;
           return {
-            data: {
+            body: {
               name: 'Ambassadors Clubhouse New York',
               location: {
                 latitude: 40.7476,
@@ -165,11 +150,11 @@ test('fetchDataAndParseSlots falls back to normalized venue-name matching and re
           };
         }
 
-        if (config.url === 'https://api.resy.com/3/venuesearch/search') {
-          const day = (config.data as { slot_filter: { day: string } }).slot_filter.day;
+        if (call.input === 'https://api.resy.com/3/venuesearch/search') {
+          const day = JSON.parse(String(call.init?.body)).slot_filter.day as string;
 
           return {
-            data: {
+            body: {
               search: {
                 hits:
                   day === '2026-04-10'
@@ -185,7 +170,7 @@ test('fetchDataAndParseSlots falls back to normalized venue-name matching and re
           };
         }
 
-        throw new Error(`Unexpected request: ${config.method} ${config.url}`);
+        throw new Error(`Unexpected request: ${call.init?.method} ${call.input}`);
       }, async () => {
         resetBookingState();
         const selection = await fetchDataAndParseSlots();

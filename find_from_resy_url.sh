@@ -17,14 +17,7 @@ fi
 
 RESY_URL="$1"
 
-RESOLVED=()
-
-while IFS= read -r line; do
-  RESOLVED+=("$line")
-done < <(
-  "$DOTENV_BIN" -e "$ROOT_DIR/.env" -- env RESY_URL="$RESY_URL" node --input-type=module <<'NODE'
-import axios from 'axios';
-
+RESOLVED_OUTPUT="$("$DOTENV_BIN" -e "$ROOT_DIR/.env" -- env RESY_URL="$RESY_URL" node --input-type=module <<'NODE'
 function fail(message) {
   console.error(message);
   process.exit(1);
@@ -91,7 +84,6 @@ if (!partySize) {
 }
 
 const headers = {
-  authority: 'api.resy.com',
   accept: 'application/json, text/plain, */*',
   'accept-language': 'en-US,en;q=0.9,la;q=0.8',
   authorization: `ResyAPI api_key="${apiKey}"`,
@@ -106,18 +98,25 @@ const headers = {
   'content-type': 'application/json',
 };
 
-const response = await axios.post(
+const response = await fetch(
   'https://api.resy.com/3/venuesearch/search',
   {
-    page: 1,
-    per_page: 20,
-    types: ['venue'],
-    query: humanizeSlug(venueSlug),
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      page: 1,
+      per_page: 20,
+      types: ['venue'],
+      query: humanizeSlug(venueSlug),
+    }),
   },
-  { headers },
 );
+if (!response.ok) {
+  fail(`Venue search failed with status ${response.status}.`);
+}
+const responseBody = await response.json();
 
-const hits = response.data.search?.hits ?? [];
+const hits = responseBody.search?.hits ?? [];
 const matchingHit = hits.find((hit) => hit?.url_slug === venueSlug);
 
 if (!matchingHit) {
@@ -130,12 +129,16 @@ if (!venueId) {
   fail(`Resolved venue '${matchingHit.name}' but could not extract a Resy venue ID.`);
 }
 
-const venueDetailsResponse = await axios.get(
+const venueDetailsResponse = await fetch(
   `https://api.resy.com/3/venue?id=${encodeURIComponent(venueId)}`,
   { headers },
 );
+if (!venueDetailsResponse.ok) {
+  fail(`Venue details lookup failed with status ${venueDetailsResponse.status}.`);
+}
+const venueDetails = await venueDetailsResponse.json();
 
-const locationSlug = venueDetailsResponse.data.location?.url_slug;
+const locationSlug = venueDetails.location?.url_slug;
 
 if (locationSlug && locationSlug !== citySlug) {
   fail(
@@ -148,7 +151,12 @@ console.log(matchingHit.name);
 console.log(date);
 console.log(partySize);
 NODE
-)
+)"
+
+RESOLVED=()
+while IFS= read -r line; do
+  RESOLVED+=("$line")
+done <<< "$RESOLVED_OUTPUT"
 
 if [[ "${#RESOLVED[@]}" -ne 4 ]]; then
   echo "Failed to resolve the Resy URL." >&2

@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { describeDiscoveryConfig, getDiscoveryConfig } from '../utils/discovery.js';
-import { withEnv } from './testUtils.js';
+import {
+  describeDiscoveryConfig,
+  getDiscoveryConfig,
+  runCalendarDiscovery,
+} from '../utils/discovery.js';
+import { withEnv, withMockedFetch } from './testUtils.js';
 
 test('getDiscoveryConfig requires a venue when discovery mode is enabled', () => {
   withEnv(
@@ -56,5 +60,98 @@ test('describeDiscoveryConfig summarizes the watcher settings', () => {
       triggerBooking: false,
     }),
     'Discovery mode enabled for venue 94741. Polling the calendar every 15 seconds from 2026-03-30 through 2026-07-28 for party size 2 (America/New_York).',
+  );
+});
+
+test('runCalendarDiscovery waits for bookable inventory after the horizon advances', async () => {
+  const requests: string[] = [];
+
+  const discoveredDate = await withEnv(
+    {
+      RESY_API_KEY: 'api-key',
+      AUTH_TOKEN: 'auth-token',
+    },
+    () =>
+      withMockedFetch(async (call) => {
+        requests.push(call.input);
+
+        if (call.input === 'https://api.resy.com/2/config?venue_id=94741') {
+          return {
+            body: {
+              calendar_date_to:
+                requests.filter((url) => url === 'https://api.resy.com/2/config?venue_id=94741')
+                  .length === 1
+                  ? '2026-04-15'
+                  : '2026-04-16',
+            },
+          };
+        }
+
+        if (call.input === 'https://api.resy.com/3/venue?id=94741') {
+          return {
+            body: {
+              name: 'Ambassadors Clubhouse New York',
+              location: {
+                latitude: 40.7476,
+                longitude: -73.9886,
+              },
+            },
+          };
+        }
+
+        if (call.input === 'https://api.resy.com/3/venuesearch/search') {
+          const searchCallCount = requests.filter(
+            (url) => url === 'https://api.resy.com/3/venuesearch/search',
+          ).length;
+
+          return {
+            body: {
+              search: {
+                hits: [
+                  {
+                    id: { resy: 94741 },
+                    name: 'Ambassadors Clubhouse New York',
+                    availability: {
+                      slots:
+                        searchCallCount === 1
+                          ? []
+                          : [
+                              {
+                                date: { start: '2026-04-16 17:00:00' },
+                                config: {
+                                  token: 'slot-token',
+                                  type: 'Dining Room',
+                                },
+                              },
+                            ],
+                    },
+                  },
+                ],
+              },
+            },
+          };
+        }
+
+        throw new Error(`Unexpected request: ${call.init?.method} ${call.input}`);
+      }, async () =>
+        runCalendarDiscovery({
+          enabled: true,
+          venueId: '94741',
+          startDate: '2026-04-01',
+          endDate: '2026-07-30',
+          partySize: '2',
+          intervalSeconds: 0,
+          timezone: 'America/New_York',
+          triggerBooking: false,
+        }, {
+          stopAfterFirstBookableDate: true,
+        }),
+      ),
+  );
+
+  assert.equal(discoveredDate, '2026-04-16');
+  assert.equal(
+    requests.filter((url) => url === 'https://api.resy.com/3/venuesearch/search').length,
+    2,
   );
 });

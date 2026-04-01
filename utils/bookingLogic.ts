@@ -1,6 +1,5 @@
-import axios, { type AxiosRequestConfig } from 'axios';
-import FormData from 'form-data';
 import { convertDateToLongFormat } from './helpers.js';
+import { getErrorDetail, requestJson } from './http.js';
 import { getOptionalEnv, getRequiredEnv } from './runtime.js';
 import { slotParser } from './slotParser.js';
 import {
@@ -21,9 +20,9 @@ import type {
   ExistingReservationEntry,
   ExistingReservationsResponse,
   ResolvedSearchPlan,
+  ResyVenueEntry,
   SearchSelection,
   SlotSearchResponse,
-  ResyVenueEntry,
   VenueDetailsResponse,
   VenueSearchHit,
   VenueSearchResponse,
@@ -47,26 +46,20 @@ export function resetBookingState(): void {
   cachedVenueSearchContexts.clear();
 }
 
-function logAxiosError(error: unknown): void {
-  if (axios.isAxiosError(error)) {
-    const responseData = error.response?.data;
-    console.error(responseData ?? error.message);
-    return;
-  }
-
-  console.error(error);
+function logRequestError(error: unknown): void {
+  console.error(getErrorDetail(error));
 }
 
 async function loadUpcomingReservations(): Promise<ExistingReservationEntry[]> {
   if (!cachedExistingReservations) {
     cachedExistingReservations = (async () => {
       const authToken = getRequiredEnv('AUTH_TOKEN');
-      const response = await axios.request<ExistingReservationsResponse>(
+      const response = await requestJson<ExistingReservationsResponse>(
         buildExistingReservationsRequest(authToken),
       );
-      return response.data.reservations ?? [];
+      return response.reservations ?? [];
     })().catch((error: unknown) => {
-      logAxiosError(error);
+      logRequestError(error);
       return [];
     });
   }
@@ -159,10 +152,10 @@ async function loadVenueSearchContext(
 
   const pending = (async () => {
     try {
-      const response = await axios.request<VenueDetailsResponse>(
+      const response = await requestJson<VenueDetailsResponse>(
         buildVenueDetailsRequest(venueId),
       );
-      const venueName = response.data.name?.trim();
+      const venueName = response.name?.trim();
 
       if (!venueName) {
         console.error(`Unable to resolve venue metadata for ${venueId}.`);
@@ -172,11 +165,11 @@ async function loadVenueSearchContext(
       return {
         venueId,
         venueName,
-        latitude: response.data.location?.latitude,
-        longitude: response.data.location?.longitude,
+        latitude: response.location?.latitude,
+        longitude: response.location?.longitude,
       };
     } catch (error: unknown) {
-      logAxiosError(error);
+      logRequestError(error);
       return null;
     }
   })();
@@ -319,22 +312,25 @@ export async function makeBooking(bookToken: string): Promise<BookingResponse | 
   const authToken = getRequiredEnv('AUTH_TOKEN');
   const paymentId = getRequiredEnv('PAYMENT_ID');
   const config = buildFinalBookingRequest(authToken);
-  const formData = new FormData();
+  const formData = new URLSearchParams();
 
   formData.append('struct_payment_method', JSON.stringify({ id: paymentId }));
   formData.append('book_token', bookToken);
   formData.append('source_id', 'resy.com-venue-details');
 
   try {
-    const response = await axios.post<BookingResponse>(
-      config.url as string,
-      formData,
-      buildPostConfig(config, formData),
-    );
+    const response = await requestJson<BookingResponse>({
+      ...config,
+      data: formData,
+      headers: {
+        ...config.headers,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+    });
 
-    return response.data;
+    return response;
   } catch (error: unknown) {
-    logAxiosError(error);
+    logRequestError(error);
     return null;
   }
 }
@@ -350,7 +346,7 @@ async function fetchSlotsForTarget(
       return null;
     }
 
-    const response = await axios.request<VenueSearchResponse>(
+    const response = await requestJson<VenueSearchResponse>(
       buildFindSlotsRequest(
         searchContext.venueName,
         date,
@@ -360,7 +356,7 @@ async function fetchSlotsForTarget(
       ),
     );
 
-    const venueEntry = buildVenueEntryFromSearchResult(response.data, searchContext);
+    const venueEntry = buildVenueEntryFromSearchResult(response, searchContext);
 
     return {
       results: {
@@ -368,14 +364,14 @@ async function fetchSlotsForTarget(
       },
     };
   } catch (error: unknown) {
-    logAxiosError(error);
+    logRequestError(error);
     return null;
   }
 }
 
 async function getBookingToken(selection: SearchSelection): Promise<string | null> {
   try {
-    const response = await axios.request<BookingTokenResponse>(
+    const response = await requestJson<BookingTokenResponse>(
       buildBookingDetailsRequest(
         selection.slotToken,
         selection.date,
@@ -383,22 +379,9 @@ async function getBookingToken(selection: SearchSelection): Promise<string | nul
       ),
     );
 
-    return response.data.book_token.value;
+    return response.book_token.value;
   } catch (error: unknown) {
-    logAxiosError(error);
+    logRequestError(error);
     return null;
   }
-}
-
-function buildPostConfig(
-  config: AxiosRequestConfig,
-  formData: FormData,
-): AxiosRequestConfig {
-  return {
-    headers: {
-      ...(config.headers ?? {}),
-      ...formData.getHeaders(),
-    },
-    maxBodyLength: config.maxBodyLength,
-  };
 }
